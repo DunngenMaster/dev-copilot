@@ -11,7 +11,7 @@ import array
 from typing import List
 
 
-def embed_snapshot(repo: str, team: str, window_days: int, dims: int = 32) -> List[float]:
+def embed_snapshot(repo: str, team: str, window_days: int, dims: int = 128) -> List[float]:
     """
     Return deterministic pseudo-vector of given dims based on input hash.
     

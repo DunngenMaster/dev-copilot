@@ -31,6 +31,10 @@ import time
 from services.collection import run_collection, compute_score
 from services.postman_client import run_collection_or_stub
 
+# Import routers
+from routes.streaming import router as streaming_router
+from routes.dashboard import router as dashboard_router
+
 
 # Pydantic models
 class HealthResponse(BaseModel):
@@ -76,6 +80,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(streaming_router, prefix="/api", tags=["streaming"])
+app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
 
 
 @app.on_event("startup")

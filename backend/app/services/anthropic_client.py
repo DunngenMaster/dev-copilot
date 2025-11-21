@@ -171,7 +171,7 @@ def _call_claude_with_retry(
 def generate_sop(
     metrics: Dict[str, Any], 
     rag_docs: List[str], 
-    model: str = "claude-3-haiku-20240307"
+    model: str = "claude-3-5-sonnet-20241022"  # Upgraded to Sonnet for hackathon
 ) -> Dict[str, Any]:
     """
     Generate SOP analysis using Claude with strict JSON parsing.

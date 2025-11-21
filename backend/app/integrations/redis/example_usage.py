@@ -14,7 +14,7 @@ def example_usage():
     """Demonstrate SemanticCache usage for workflow analysis."""
     
     # Set up environment (optional - will use in-memory if not set)
-    # os.environ["REDIS_URL"] = "redis://localhost:6379"
+    # os.environ["REDIS_URL"] = "rediss://your-redis-cloud-host:port"  # Redis Cloud with SSL
     
     # Connect to cache (Redis or in-memory fallback)
     connected = semantic_cache.connect_from_env()

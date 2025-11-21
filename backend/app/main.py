@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+import os
 import uvicorn
 import logging
 
@@ -18,36 +19,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import cache functionality
-try:
-    from integrations.redis.cache import semantic_cache, embed_snapshot
-    CACHE_AVAILABLE = True
-except ImportError:
-    logger.warning("Cache module not available - running without cache")
-    CACHE_AVAILABLE = False
-    
-    # Fallback embed function if cache module not available
-    import hashlib
-    
-    def embed_snapshot(repo: str, team: str, window_days: int) -> List[float]:
-        """Fallback embed function when cache module not available"""
-        input_string = f"{repo}|{team}|{window_days}"
-        hash_bytes = hashlib.sha256(input_string.encode('utf-8')).digest()
-        
-        vector = []
-        for i in range(32):
-            byte_idx = (i * 4) % len(hash_bytes)
-            byte_slice = hash_bytes[byte_idx:byte_idx + 4]
-            
-            if len(byte_slice) < 4:
-                byte_slice += b'\x00' * (4 - len(byte_slice))
-            
-            int_val = int.from_bytes(byte_slice, byteorder='big')
-            float_val = int_val / (2**32 - 1)
-            
-            vector.append(float_val)
-        
-        return vector
+# Import Redis Stack vector functionality
+from services.redis_vector import ensure_index, upsert_workflow_doc, knn_search, is_semantic_enabled
+from services.sanity_client import create_report
+from utils.embeddings import embed_snapshot, to_f32bytes
+from datetime import datetime
+import time
 
 # Import workflow services
 from services.collection import run_collection, compute_score
@@ -93,6 +70,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Redis Stack vector index on startup"""
+    try:
+        ensure_index()
+        logger.info("Redis Stack vector index initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize vector index: {e}")
+        # Continue startup even if index fails - will handle gracefully
 
 
 @app.get("/healthz", response_model=HealthResponse)
@@ -162,80 +150,151 @@ def _generate_sop_preview(metrics: Dict[str, Any], score: int) -> str:
 
 @app.post("/analyze-workflow", response_model=AnalyzeWorkflowResponse)
 async def analyze_workflow(request: AnalyzeWorkflowRequest):
-    """Analyze team workflow with semantic caching"""
+    """Analyze team workflow with Redis Cloud semantic vector caching"""
     
-    # Initialize cache if available
-    if CACHE_AVAILABLE:
-        semantic_cache.connect_from_env()
+    # Generate vector embedding from workflow parameters
+    logger.info(f"Processing workflow analysis: {request.repo}|{request.team}|{request.window_days}")
+    
+    try:
+        # Create deterministic vector embedding
+        vector = embed_snapshot(request.repo, request.team, request.window_days, dims=settings.vector_dims)
+        vector_bytes = to_f32bytes(vector)
         
-        # Generate vector for this workflow snapshot
-        snapshot_vector = embed_snapshot(request.repo, request.team, request.window_days)
+        # Check if semantic cache is enabled
+        semantic_enabled = is_semantic_enabled() and settings.semantic_cache.lower() == "on"
+        logger.info(f"Semantic cache enabled = {semantic_enabled}")
         
-        logger.info(f"CACHE_CHECK: {request.repo}|{request.team}|{request.window_days}")
+        hit = None
+        if semantic_enabled:
+            # Search for similar workflow documents
+            hit = knn_search(vector_bytes, k=3, min_sim=0.80)
         
-        # Search for similar cached results
-        similar_results = semantic_cache.search_snapshot(
-            vector=snapshot_vector,
-            k=1,
-            min_sim=0.80
+        if hit:
+            logger.info(f"KNN search similarity={hit['similarity']:.2f}")
+            logger.info("CACHE HIT")
+            
+            # Return cached result with HIT status and similarity
+            return AnalyzeWorkflowResponse(
+                score=hit["score"],
+                bottlenecks=[f"Cached analysis (similarity: {hit['similarity']:.2f})"],
+                sop=None,
+                sop_preview=hit["sop"],
+                report_url="#",
+                cache_status="HIT",
+                partial=False
+            )
+        
+        # Cache miss - run full analysis
+        logger.info("CACHE MISS")
+        
+        # Collect workflow metrics
+        metrics = run_collection(request.repo, request.team, request.window_days)
+        
+        # Calculate health score
+        score = compute_score(metrics)
+        
+        # Generate bottlenecks from metrics
+        bottlenecks = _generate_bottlenecks_from_metrics(metrics)
+        
+        # Generate SOP preview
+        sop_preview = _generate_sop_preview(metrics, score)
+        
+        # Create Sanity report for this analysis
+        report_payload = {
+            "repo": request.repo,
+            "team": request.team,
+            "score": score,
+            "bottlenecks": bottlenecks,
+            "sop": sop_preview,
+            "metrics": metrics,
+            "version": 1,
+            "createdAt": datetime.utcnow().isoformat()
+        }
+        report_url = create_report(report_payload)
+        if report_url and report_url != "#":
+            report_id = report_url.rstrip("/").split("/")[-1]
+            logger.info("SANITY saved id=%s", report_id)
+        else:
+            logger.warning("SANITY report creation skipped")
+
+        # Store in vector index for future similarity searches (if semantic cache enabled)
+        if semantic_enabled:
+            try:
+                doc_payload = {
+                    "repo": request.repo,
+                    "team": request.team,
+                    "score": score,
+                    "sop": sop_preview
+                }
+                
+                # Create unique document key with timestamp
+                timestamp = int(time.time())
+                doc_key = f"wfdoc:{request.repo}:{request.team}:{request.window_days}:{timestamp}"
+                
+                # Store document with vector embedding
+                upsert_workflow_doc(doc_key, doc_payload, vector_bytes)
+                logger.info(f"Stored new workflow document: {doc_key}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to cache workflow document: {e}")
+                # Continue without caching
+        else:
+            logger.info("Semantic cache disabled - document not stored for vector search")
+        
+        # Return analysis result
+        return AnalyzeWorkflowResponse(
+            score=score,
+            bottlenecks=bottlenecks,
+            sop=None,
+            sop_preview=sop_preview,
+            report_url=report_url,
+            cache_status="MISS",
+            partial=False
         )
         
-        if similar_results:
-            logger.info(f"HIT: Found similar result with similarity {similar_results[0]['similarity']:.3f}")
-            
-            # Return cached result simulation
-            return AnalyzeWorkflowResponse(
-                score=72,
-                bottlenecks=["stub"],
-                sop="stub sop", 
-                report_url="#",
-                cache_status="HIT"
-            )
-    
-    # Cache miss or cache not available - run full analysis
-    logger.info("MISS: No similar results found or cache unavailable - running analysis")
-    
-    # Collect workflow metrics
-    metrics = run_collection(request.repo, request.team, request.window_days)
-    
-    # Calculate health score
-    score = compute_score(metrics)
-    
-    # Generate bottlenecks from metrics
-    bottlenecks = _generate_bottlenecks_from_metrics(metrics)
-    
-    # Generate SOP preview
-    sop_preview = _generate_sop_preview(metrics, score)
-    
-    # Cache the result if cache is available
-    if CACHE_AVAILABLE:
-        try:
-            # Store in cache for future hits
-            cache_payload = {
-                "score": score,
-                "bottlenecks": bottlenecks,
-                "sop_preview": sop_preview,
-                "metrics": metrics,
-                "timestamp": logger.handlers[0].format(logger.makeRecord(
-                    logger.name, logging.INFO, "", 0, "", (), None
-                )) if logger.handlers else "unknown"
-            }
-            
-            snapshot_vector = embed_snapshot(request.repo, request.team, request.window_days)
-            cache_key = f"{request.repo}|{request.team}|{request.window_days}d"
-            semantic_cache.upsert_snapshot(cache_key, snapshot_vector, cache_payload)
-            
-        except Exception as e:
-            logger.warning(f"Failed to cache result: {e}")
-    
-    return AnalyzeWorkflowResponse(
-        score=score,
-        bottlenecks=bottlenecks,
-        sop_preview=sop_preview,
-        report_url="#",
-        cache_status="MISS",
-        partial=False
-    )
+    except Exception as e:
+        logger.error(f"Error in workflow analysis: {e}")
+        
+        # Fallback to basic response
+        return AnalyzeWorkflowResponse(
+            score=None,
+            bottlenecks=None,
+            sop=None,
+            sop_preview=None,
+            report_url=None,
+            cache_status="ERROR",
+            partial=True,
+            message="Analysis temporarily unavailable",
+            echo=request
+        )
+
+
+@app.get("/test-sanity")
+async def test_sanity_integration():
+    """Temporary route to verify Sanity connectivity."""
+    sample_payload = {
+        "repo": "test/repo",
+        "team": "qa",
+        "score": 88,
+        "bottlenecks": ["review delay", "stale issues"],
+        "sop": "Test SOP from integration",
+        "metrics": {"example": True},
+        "version": 1,
+        "createdAt": "2025-11-21T00:00:00Z"
+    }
+
+    report_url = create_report(sample_payload)
+    status_code = 200 if report_url and report_url != "#" else 500
+    base_url = os.getenv("SANITY_REPORT_BASE_URL", "").rstrip("/")
+
+    if status_code == 200 and base_url and report_url.startswith(base_url):
+        logger.info("Sanity test success: %s", report_url)
+    elif report_url == "#":
+        logger.error("Sanity test failed: configuration or API issue")
+    else:
+        logger.warning("Sanity test returned unexpected URL: %s", report_url)
+
+    return {"report_url": report_url, "status_code": status_code}
 
 
 if __name__ == "__main__":

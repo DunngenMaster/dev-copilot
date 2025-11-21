@@ -52,6 +52,10 @@ class AnalyzeWorkflowResponse(BaseModel):
     report_url: Optional[str] = None
     cache_status: str
     partial: Optional[bool] = None
+    # Flags for frontend
+    semantic_enabled: Optional[bool] = None
+    postman_mode: Optional[str] = None
+    similarity: Optional[float] = None
     # For cache MISS
     message: Optional[str] = None
     echo: Optional[AnalyzeWorkflowRequest] = None
@@ -175,6 +179,8 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
             logger.info(f"KNN search similarity={hit['similarity']:.2f}")
             logger.info("CACHE HIT")
             
+            postman_mode = "live" if os.getenv("POSTMAN_API_KEY") and os.getenv("POSTMAN_RUNNER_URL") else "stub"
+            
             # Return cached result with HIT status and similarity
             return AnalyzeWorkflowResponse(
                 score=hit["score"],
@@ -183,7 +189,10 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
                 sop_preview=hit["sop"],
                 report_url="#",
                 cache_status="HIT",
-                partial=False
+                partial=False,
+                semantic_enabled=semantic_enabled,
+                postman_mode=postman_mode,
+                similarity=hit["similarity"]
             )
         
         # Cache miss - run full analysis
@@ -286,7 +295,9 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
             sop_preview=sop_preview,
             report_url=report_url,
             cache_status="MISS",
-            partial=False
+            partial=False,
+            semantic_enabled=semantic_enabled,
+            postman_mode=postman_mode
         )
         
     except Exception as e:
@@ -302,7 +313,9 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
             cache_status="ERROR",
             partial=True,
             message="Analysis temporarily unavailable",
-            echo=request
+            echo=request,
+            semantic_enabled=False,
+            postman_mode="unknown"
         )
 
 

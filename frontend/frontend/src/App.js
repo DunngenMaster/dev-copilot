@@ -1,174 +1,111 @@
 import { useState } from 'react';
-import LogPanel from './components/LogPanel';
+import ResultCard from './components/ResultCard';
 
 function App() {
-  const [formData, setFormData] = useState({
-    repo: '',
-    team: '',
-    window_days: 14
-  });
+  const [repo, setRepo] = useState('owner/repository');
+  const [team, setTeam] = useState('platform');
+  const [windowDays, setWindowDays] = useState(14);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [response, setResponse] = useState(null);
-  const [error, setError] = useState(null);
-  const [requestStatus, setRequestStatus] = useState(null);
-  const [cacheStatus, setCacheStatus] = useState(null);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'window_days' ? parseInt(value) || 14 : value
-    }));
-  };
-
-  const handleSubmit = async (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-    setResponse(null);
-    setRequestStatus('loading');
-    setCacheStatus(null);
-
+    setError('');
     try {
       const res = await fetch('http://localhost:8000/analyze-workflow', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo, team, window_days: Number(windowDays) })
       });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setResponse(data);
-      setRequestStatus('success');
-      setCacheStatus(data.cache_status || null);
     } catch (err) {
-      setError(err.message);
-      setRequestStatus('error');
-      setCacheStatus(null);
+      setError(String(err));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-8">
-      <div className="w-full max-w-2xl">
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold text-gray-900 mb-4">
-            Workflow agent
-          </h1>
-          <p className="text-lg text-gray-500">
-            (coming soon)
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-800 py-12 px-4">
+      <div className="max-w-5xl mx-auto">
+        <div className="text-center mb-12">
+          <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-4">Workflow Agent</h1>
+          <p className="text-gray-400 text-lg">(AI-powered workflow analysis)</p>
         </div>
-
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
+        
+        <div className="bg-gray-800 bg-opacity-50 backdrop-blur-xl border border-gray-700 rounded-2xl shadow-2xl p-8 mb-8">
+          <form onSubmit={onSubmit} className="grid grid-cols-1 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
                 Repository
               </label>
-              <input
-                type="text"
-                name="repo"
-                value={formData.repo}
-                onChange={handleInputChange}
+              <input 
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" 
                 placeholder="owner/repository"
+                value={repo} 
+                onChange={e=>setRepo(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-
+            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
                 Team
               </label>
-              <input
-                type="text"
-                name="team"
-                value={formData.team}
-                onChange={handleInputChange}
+              <input 
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" 
                 placeholder="platform"
+                value={team} 
+                onChange={e=>setTeam(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-
+            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
                 Window Days
               </label>
-              <input
-                type="number"
-                name="window_days"
-                value={formData.window_days}
-                onChange={handleInputChange}
+              <input 
+                type="number" 
+                className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" 
                 min="1"
                 max="90"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={windowDays} 
+                onChange={e=>setWindowDays(e.target.value)}
+                required
               />
             </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            
+            <button 
+              disabled={loading} 
+              className="mt-4 px-6 py-4 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-lg hover:from-blue-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
             >
-              {loading ? 'Analyzing...' : 'Analyze'}
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Analyzing...
+                </span>
+              ) : (
+                'Analyze Workflow'
+              )}
             </button>
           </form>
-
-          {/* Loading State */}
-          {loading && (
-            <div className="mt-4 p-4 bg-blue-50 rounded-md">
-              <div className="flex items-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                <span className="text-blue-700">Analyzing workflow...</span>
-              </div>
-            </div>
-          )}
-
-          {/* Error State */}
+          
           {error && (
-            <div className="mt-4 p-4 bg-red-50 rounded-md">
-              <div className="flex">
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">
-                    Error
-                  </h3>
-                  <div className="mt-2 text-sm text-red-700">
-                    {error}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Response Panel */}
-          {response && (
-            <div className="mt-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Response</h3>
-              <pre className="bg-gray-100 rounded-md p-4 overflow-auto text-sm font-mono text-gray-800 max-h-96">
-                {JSON.stringify(response, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* Log Panel */}
-          {(requestStatus || cacheStatus) && (
-            <div className="mt-4">
-              <LogPanel 
-                lastRequest={requestStatus} 
-                cacheStatus={cacheStatus} 
-              />
+            <div className="mt-6 p-4 bg-red-900 bg-opacity-50 border border-red-700 rounded-lg backdrop-blur-sm">
+              <p className="text-red-200 text-sm font-medium">{error}</p>
             </div>
           )}
         </div>
+        
+        <ResultCard data={response}/>
       </div>
     </div>
   );

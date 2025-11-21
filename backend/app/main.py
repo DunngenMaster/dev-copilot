@@ -20,8 +20,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import Redis Stack vector functionality
-from services.redis_vector import ensure_index, upsert_workflow_doc, knn_search, is_semantic_enabled
+from services.redis_vector import ensure_index, upsert_workflow_doc, knn_search, is_semantic_enabled, rag_retrieve
 from services.sanity_client import create_report
+from services.anthropic_client import generate_sop
 from utils.embeddings import embed_snapshot, to_f32bytes
 from datetime import datetime
 import time
@@ -197,11 +198,43 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
         # Calculate health score
         score = compute_score(metrics)
         
-        # Generate bottlenecks from metrics
-        bottlenecks = _generate_bottlenecks_from_metrics(metrics)
+        # Try to generate bottlenecks and SOP using Claude with RAG context
+        bottlenecks = []
+        sop_full = None
+        sop_preview = None
+        summary = None
         
-        # Generate SOP preview
-        sop_preview = _generate_sop_preview(metrics, score)
+        try:
+            # Retrieve similar SOPs for RAG context
+            rag_docs = rag_retrieve(vector_bytes, k=5)
+            logger.info(f"RAG retrieve: found {len(rag_docs)} context documents")
+            
+            # Generate bottlenecks and SOP using Claude
+            claude_result = generate_sop(metrics, rag_docs)
+            bottlenecks = claude_result.get("bottlenecks", [])[:5]  # Limit to top 5
+            sop_full = claude_result.get("sop", "")
+            summary = claude_result.get("summary", "")
+            
+            # Use summary as preview if available, otherwise truncate full SOP
+            if summary:
+                sop_preview = summary
+            elif sop_full:
+                sop_preview = sop_full[:500] + "..." if len(sop_full) > 500 else sop_full
+            
+            logger.info("CLAUDE reasoning: generated bottlenecks and SOP")
+            
+        except Exception as e:
+            logger.warning(f"Claude reasoning failed: {e}")
+            # Fallback to rule-based bottlenecks
+            bottlenecks = _generate_bottlenecks_from_metrics(metrics)
+            sop_preview = _generate_sop_preview(metrics, score)
+            logger.info("Fallback to rule-based bottleneck generation")
+        
+        # Use sop_full for storage if available, otherwise use preview
+        sop_for_storage = sop_full if sop_full else sop_preview
+        
+        # Use sop_full for storage if available, otherwise use preview
+        sop_for_storage = sop_full if sop_full else sop_preview
         
         # Create Sanity report for this analysis
         report_payload = {
@@ -209,7 +242,7 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
             "team": request.team,
             "score": score,
             "bottlenecks": bottlenecks,
-            "sop": sop_preview,
+            "sop": sop_for_storage,
             "metrics": metrics,
             "version": 1,
             "createdAt": datetime.utcnow().isoformat()
@@ -228,7 +261,7 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
                     "repo": request.repo,
                     "team": request.team,
                     "score": score,
-                    "sop": sop_preview
+                    "sop": sop_for_storage
                 }
                 
                 # Create unique document key with timestamp

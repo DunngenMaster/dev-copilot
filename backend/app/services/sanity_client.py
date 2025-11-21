@@ -18,7 +18,8 @@ def create_report(data: Dict[str, Any]) -> str:
     project_id = os.getenv("SANITY_PROJECT_ID")
     dataset = os.getenv("SANITY_DATASET")
     token = os.getenv("SANITY_TOKEN")
-    base_url = os.getenv("SANITY_REPORT_BASE_URL", "").rstrip("/") if os.getenv("SANITY_REPORT_BASE_URL") else ""
+    base_url_env = os.getenv("SANITY_REPORT_BASE_URL", "")
+    base_url = base_url_env.rstrip("/") if base_url_env else ""
 
     if not all([project_id, dataset, token]):
         logger.warning("SANITY configuration missing - skipping report creation")
@@ -41,15 +42,17 @@ def create_report(data: Dict[str, Any]) -> str:
         "Content-Type": "application/json",
     }
 
+    params = {"returnIds": "true", "visibility": "sync"}
+
     try:
-        response = requests.post(api_url, json=payload, headers=headers, timeout=10)
+        response = requests.post(api_url, json=payload, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         body = response.json()
         results = body.get("results") or []
         created = results[0] if results else {}
-        doc_id = created.get("id") or created.get("_id")
+        doc_id = created.get("id") or created.get("_id") or created.get("documentId")
         if not doc_id:
-            raise ValueError("Sanity response missing document id")
+            raise ValueError(f"Sanity response missing document id: {body}")
 
         logger.info("SANITY saved id=%s", doc_id)
         if base_url:

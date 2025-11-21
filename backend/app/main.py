@@ -28,6 +28,7 @@ import time
 
 # Import workflow services
 from services.collection import run_collection, compute_score
+from services.postman_client import run_collection_or_stub
 
 
 # Pydantic models
@@ -187,8 +188,11 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
         # Cache miss - run full analysis
         logger.info("CACHE MISS")
         
-        # Collect workflow metrics
-        metrics = run_collection(request.repo, request.team, request.window_days)
+        # Collect workflow metrics via Postman when available
+        metrics = run_collection_or_stub(request.repo, request.team, request.window_days)
+        # Log mode based on environment availability
+        postman_mode = "live" if os.getenv("POSTMAN_API_KEY") and os.getenv("POSTMAN_RUNNER_URL") else "stub"
+        logger.info("POSTMAN mode: %s", postman_mode)
         
         # Calculate health score
         score = compute_score(metrics)

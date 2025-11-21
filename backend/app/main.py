@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+import os
 import uvicorn
 import logging
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Import Redis Stack vector functionality
 from services.redis_vector import ensure_index, upsert_workflow_doc, knn_search, is_semantic_enabled
+from services.sanity_client import create_report
 from utils.embeddings import embed_snapshot, to_f32bytes
 from datetime import datetime
 import time
@@ -197,6 +199,24 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
         # Generate SOP preview
         sop_preview = _generate_sop_preview(metrics, score)
         
+        # Create Sanity report for this analysis
+        report_payload = {
+            "repo": request.repo,
+            "team": request.team,
+            "score": score,
+            "bottlenecks": bottlenecks,
+            "sop": sop_preview,
+            "metrics": metrics,
+            "version": 1,
+            "createdAt": datetime.utcnow().isoformat()
+        }
+        report_url = create_report(report_payload)
+        if report_url and report_url != "#":
+            report_id = report_url.rstrip("/").split("/")[-1]
+            logger.info("SANITY saved id=%s", report_id)
+        else:
+            logger.warning("SANITY report creation skipped")
+
         # Store in vector index for future similarity searches (if semantic cache enabled)
         if semantic_enabled:
             try:
@@ -227,7 +247,7 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
             bottlenecks=bottlenecks,
             sop=None,
             sop_preview=sop_preview,
-            report_url="#",
+            report_url=report_url,
             cache_status="MISS",
             partial=False
         )
@@ -247,6 +267,34 @@ async def analyze_workflow(request: AnalyzeWorkflowRequest):
             message="Analysis temporarily unavailable",
             echo=request
         )
+
+
+@app.get("/test-sanity")
+async def test_sanity_integration():
+    """Temporary route to verify Sanity connectivity."""
+    sample_payload = {
+        "repo": "test/repo",
+        "team": "qa",
+        "score": 88,
+        "bottlenecks": ["review delay", "stale issues"],
+        "sop": "Test SOP from integration",
+        "metrics": {"example": True},
+        "version": 1,
+        "createdAt": "2025-11-21T00:00:00Z"
+    }
+
+    report_url = create_report(sample_payload)
+    status_code = 200 if report_url and report_url != "#" else 500
+    base_url = os.getenv("SANITY_REPORT_BASE_URL", "").rstrip("/")
+
+    if status_code == 200 and base_url and report_url.startswith(base_url):
+        logger.info("Sanity test success: %s", report_url)
+    elif report_url == "#":
+        logger.error("Sanity test failed: configuration or API issue")
+    else:
+        logger.warning("Sanity test returned unexpected URL: %s", report_url)
+
+    return {"report_url": report_url, "status_code": status_code}
 
 
 if __name__ == "__main__":

@@ -4,8 +4,10 @@ uvicorn[standard]==0.24.0
 pydantic[dotenv]==2.5.0
 python-dotenv==1.0.0
 
-# Database and caching
+# Redis Cloud client (no local Redis installation needed)
 redis==5.0.1
+
+# Database
 pymongo==4.6.0
 
 # HTTP clients and API integrations

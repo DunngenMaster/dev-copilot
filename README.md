@@ -126,7 +126,7 @@ ANTHROPIC_API_KEY=sk-ant-xxx
 PARALLEL_API_KEY=xxx
 
 # Data Stores
-REDIS_URL=redis://localhost:6379
+REDIS_URL=rediss://default:password@your-redis-cloud-host:port
 SANITY_PROJECT_ID=xxx
 SANITY_DATASET=production
 
@@ -139,7 +139,7 @@ SKYFLOW_VAULT_URL=https://xxx.vault.skyflowapis.com
 
 **Analyze Team Workflow**
 ```bash
-curl -X POST http://localhost:8000/analyze-workflow \
+curl -X POST http://your-api-host:8000/analyze-workflow \
   -H "Content-Type: application/json" \
   -d '{
     "github_repo": "owner/repo",
@@ -185,9 +185,6 @@ cd backend && uvicorn app.main:app --reload
 
 # Frontend with hot reload  
 cd frontend && npm run dev
-
-# Redis (if running locally)
-redis-server
 
 # Sanity Studio
 cd sanity && npm run dev

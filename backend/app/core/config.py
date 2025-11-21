@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     redis_url: Optional[str] = None
     cache_ttl_seconds: int = 1800
     
+    # Semantic vector cache configuration
+    semantic_cache: str = "on"
+    vector_dims: int = 32
+    
     # CORS configuration
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173"]
     

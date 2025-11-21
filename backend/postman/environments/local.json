@@ -1,0 +1,26 @@
+{
+  "id": "local-env",
+  "name": "Local Environment",
+  "values": [
+    {
+      "key": "gh_token",
+      "value": "",
+      "enabled": true
+    },
+    {
+      "key": "repo_owner",
+      "value": "",
+      "enabled": true
+    },
+    {
+      "key": "repo_name",
+      "value": "",
+      "enabled": true
+    },
+    {
+      "key": "window_days",
+      "value": "14",
+      "enabled": true
+    }
+  ]
+}

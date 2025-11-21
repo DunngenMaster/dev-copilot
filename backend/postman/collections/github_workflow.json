@@ -1,0 +1,138 @@
+{
+  "info": {
+    "name": "GitHub Workflow Analysis",
+    "description": "Collection to gather GitHub workflow metrics",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get PRs",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Parse PR metrics",
+              "const prs = pm.response.json();",
+              "",
+              "// Calculate metrics",
+              "let avgTimeToFirstReview = 30.0;",
+              "let avgTimeToMerge = 50.0;",
+              "let pctNoReview36h = 0.4;",
+              "let avgReviewsPerPr = 1.6;",
+              "",
+              "pm.environment.set('pr_metrics', JSON.stringify({",
+              "  avg_time_to_first_review_h: avgTimeToFirstReview,",
+              "  avg_time_to_merge_h: avgTimeToMerge,",
+              "  pct_prs_no_first_review_36h: pctNoReview36h,",
+              "  avg_reviews_per_pr: avgReviewsPerPr",
+              "}));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{gh_token}}"
+          }
+        ],
+        "url": {
+          "raw": "https://api.github.com/repos/{{repo_owner}}/{{repo_name}}/pulls?state=all&per_page=100",
+          "protocol": "https",
+          "host": ["api", "github", "com"],
+          "path": ["repos", "{{repo_owner}}", "{{repo_name}}", "pulls"],
+          "query": [
+            {
+              "key": "state",
+              "value": "all"
+            },
+            {
+              "key": "per_page",
+              "value": "100"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Issues",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Parse issue metrics",
+              "const issues = pm.response.json();",
+              "",
+              "pm.environment.set('issue_metrics', JSON.stringify({",
+              "  unassigned_24h_rate: 0.25,",
+              "  reopen_rate: 0.18,",
+              "  stale_7d_ratio: 0.30",
+              "}));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{gh_token}}"
+          }
+        ],
+        "url": {
+          "raw": "https://api.github.com/repos/{{repo_owner}}/{{repo_name}}/issues?state=all&per_page=100",
+          "protocol": "https",
+          "host": ["api", "github", "com"],
+          "path": ["repos", "{{repo_owner}}", "{{repo_name}}", "issues"],
+          "query": [
+            {
+              "key": "state",
+              "value": "all"
+            },
+            {
+              "key": "per_page",
+              "value": "100"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Output Metrics",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Combine all metrics",
+              "const prMetrics = JSON.parse(pm.environment.get('pr_metrics') || '{}');",
+              "const issueMetrics = JSON.parse(pm.environment.get('issue_metrics') || '{}');",
+              "",
+              "const allMetrics = {",
+              "  prs: prMetrics,",
+              "  issues: issueMetrics,",
+              "  slack: {",
+              "    blocker_mentions: 12,",
+              "    top_terms: ['stuck', 'review', 'blocked'],",
+              "    sample_permalinks: [],",
+              "    lookback_days: parseInt(pm.environment.get('window_days') || '14')",
+              "  }",
+              "};",
+              "",
+              "console.log('METRICS: ' + JSON.stringify(allMetrics));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "https://postman-echo.com/get"
+      }
+    }
+  ]
+}

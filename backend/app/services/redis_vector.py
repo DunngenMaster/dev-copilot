@@ -131,7 +131,7 @@ def ensure_index() -> bool:
             "sop", "TEXT",
             "embedding", "VECTOR", "HNSW", "6",
             "TYPE", "FLOAT32",
-            "DIM", "32", 
+            "DIM", "128",  # Upgraded from 32 for better semantic precision
             "DISTANCE_METRIC", "COSINE"
         ]
         

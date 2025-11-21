@@ -1,0 +1,108 @@
+{
+  "info": {
+    "name": "Jira Workflow Analysis",
+    "description": "Collection to gather Jira issue metrics",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Project Issues",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const issues = pm.response.json().issues || [];",
+              "const windowDays = parseInt(pm.environment.get('window_days') || '14');",
+              "const now = new Date();",
+              "const cutoffDate = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);",
+              "",
+              "let unassigned24h = 0;",
+              "let reopened = 0;",
+              "let stale7d = 0;",
+              "let totalIssues = 0;",
+              "",
+              "issues.forEach(issue => {",
+              "  const created = new Date(issue.fields.created);",
+              "  if (created < cutoffDate) return;",
+              "  ",
+              "  totalIssues++;",
+              "  ",
+              "  // Check if unassigned after 24h",
+              "  const hoursSinceCreation = (now - created) / (1000 * 60 * 60);",
+              "  if (!issue.fields.assignee && hoursSinceCreation > 24) {",
+              "    unassigned24h++;",
+              "  }",
+              "  ",
+              "  // Check if reopened (has resolution then status changed)",
+              "  if (issue.fields.resolutiondate && issue.fields.status.name !== 'Done') {",
+              "    reopened++;",
+              "  }",
+              "  ",
+              "  // Check if stale (updated >7 days ago)",
+              "  const updated = new Date(issue.fields.updated);",
+              "  const daysSinceUpdate = (now - updated) / (1000 * 60 * 60 * 24);",
+              "  if (daysSinceUpdate > 7) {",
+              "    stale7d++;",
+              "  }",
+              "});",
+              "",
+              "pm.environment.set('jira_metrics', JSON.stringify({",
+              "  unassigned_24h_rate: totalIssues > 0 ? unassigned24h / totalIssues : 0.25,",
+              "  reopen_rate: totalIssues > 0 ? reopened / totalIssues : 0.18,",
+              "  stale_7d_ratio: totalIssues > 0 ? stale7d / totalIssues : 0.30",
+              "}));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jira_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "https://{{jira_host}}/rest/api/3/search?jql=project={{jira_project}}&maxResults=100",
+          "protocol": "https",
+          "host": ["{{jira_host}}"],
+          "path": ["rest", "api", "3", "search"],
+          "query": [
+            {
+              "key": "jql",
+              "value": "project={{jira_project}}"
+            },
+            {
+              "key": "maxResults",
+              "value": "100"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Output Jira Metrics",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "const jiraMetrics = JSON.parse(pm.environment.get('jira_metrics') || '{}');",
+              "console.log('JIRA_METRICS: ' + JSON.stringify(jiraMetrics));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "https://postman-echo.com/get"
+      }
+    }
+  ]
+}

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     # Semantic vector cache configuration
     semantic_cache: str = "on"
-    vector_dims: int = 32
+    vector_dims: int = 128  # Upgraded from 32 for better semantic precision
     
     # CORS configuration
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173"]

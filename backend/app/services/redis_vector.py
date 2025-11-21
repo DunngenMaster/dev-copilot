@@ -421,3 +421,66 @@ def clear_all_docs() -> int:
     except Exception as e:
         logger.error(f"Failed to clear documents: {e}")
         return 0
+
+
+def rag_retrieve(vector_bytes: bytes, k: int = 5) -> List[str]:
+    """
+    Retrieve top-k similar SOP documents for RAG context.
+    
+    Args:
+        vector_bytes: Query vector as packed float32 bytes
+        k: Number of documents to retrieve
+        
+    Returns:
+        List of SOP text snippets (up to k items)
+    """
+    global _semantic_enabled
+    
+    if not _semantic_enabled:
+        logger.info("RAG retrieve: semantic search disabled")
+        return []
+    
+    client = get_client()
+    
+    try:
+        # Search for similar workflow documents
+        search_cmd = [
+            "FT.SEARCH", "idx_workflows",
+            f"*=>[KNN {k} @embedding $B AS distance]",
+            "PARAMS", "2",
+            "B", vector_bytes,
+            "SORTBY", "distance",
+            "DIALECT", "2",
+            "LIMIT", "0", str(k),
+            "RETURN", "2", "sop", "distance"
+        ]
+        
+        result = client.execute_command(*search_cmd)
+        
+        if not result or len(result) < 2:
+            return []
+        
+        # Parse results: [count, [key, [field, value, ...]], ...]
+        docs = []
+        results_list = result[1:]  # Skip count
+        
+        for item in results_list:
+            if isinstance(item, list) and len(item) > 1:
+                fields = item[1]
+                # Extract sop field
+                for i in range(0, len(fields), 2):
+                    field_name = fields[i].decode() if isinstance(fields[i], bytes) else fields[i]
+                    if field_name == "sop" and i + 1 < len(fields):
+                        sop_text = fields[i + 1]
+                        if isinstance(sop_text, bytes):
+                            sop_text = sop_text.decode()
+                        if sop_text and len(sop_text) > 10:
+                            docs.append(str(sop_text))
+                        break
+        
+        logger.info(f"RAG retrieve: found {len(docs)} relevant documents")
+        return docs
+        
+    except Exception as e:
+        logger.warning(f"RAG retrieve failed: {e}")
+        return []
